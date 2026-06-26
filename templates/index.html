@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChipCam</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: system-ui, sans-serif;
+            background: #111;
+            color: #eee;
+            padding: 1.5rem;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        header h1 { font-size: 1.2rem; }
+
+        #rec-badge {
+            background: #e33;
+            color: white;
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 4px;
+            display: none;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.5; }
+        }
+
+        .stream-wrapper {
+            display: inline-block;
+            border-radius: 8px;
+            overflow: hidden;
+            max-width: 100%;
+        }
+
+        img#stream {
+            display: block;
+            max-width: 100%;
+        }
+
+        #clips {
+            margin-top: 2rem;
+        }
+
+        #clips h2 {
+            font-size: 0.9rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.75rem;
+        }
+
+        #clip-list { list-style: none; }
+
+        #clip-list li {
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #222;
+            font-size: 0.9rem;
+        }
+
+        #clip-list a {
+            color: #6af;
+            text-decoration: none;
+        }
+
+        #clip-list a:hover { text-decoration: underline; }
+
+        .empty { color: #555; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>ChipCam</h1>
+        <span id="rec-badge">&#9679; REC</span>
+    </header>
+
+    <div class="stream-wrapper">
+        <img id="stream" src="/stream" alt="live stream">
+    </div>
+
+    <div id="clips">
+        <h2>Recorded clips</h2>
+        <ul id="clip-list"></ul>
+    </div>
+
+    <script>
+        const badge    = document.getElementById('rec-badge');
+        const clipList = document.getElementById('clip-list');
+
+        async function poll() {
+            try {
+                const { recording, clips } = await fetch('/status').then(r => r.json());
+
+                badge.style.display = recording ? 'inline-block' : 'none';
+
+                clipList.innerHTML = clips.length
+                    ? clips.map(c =>
+                        `<li><a href="/clips/${c}" download>${c}</a></li>`
+                      ).join('')
+                    : '<li class="empty">No clips yet</li>';
+            } catch (e) {
+                console.error('Poll failed:', e);
+            }
+        }
+
+        poll();
+        setInterval(poll, 3000);
+    </script>
+</body>
+</html>
