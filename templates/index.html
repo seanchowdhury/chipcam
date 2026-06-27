@@ -146,6 +146,7 @@
         const recBtn   = document.getElementById('rec-btn');
 
         let isRecording = false;
+        let isEditing = false;
 
         recBtn.addEventListener('click', async () => {
             const endpoint = isRecording ? '/record/stop' : '/record/start';
@@ -162,7 +163,7 @@
                 recBtn.textContent   = recording ? 'Stop' : 'Record';
                 recBtn.classList.toggle('stop', recording);
 
-                renderClips(clips);
+                if (!isEditing) renderClips(clips);
             } catch (e) {
                 console.error('Poll failed:', e);
             }
@@ -194,6 +195,7 @@
         }
 
         function startRename(li) {
+            isEditing = true;
             const filename = li.dataset.filename;
             const nameWithoutExt = filename.replace(/\.mp4$/, '');
 
@@ -220,16 +222,17 @@
             input.select();
 
             confirmBtn.addEventListener('click', () => doRename(filename, input.value));
-            cancelBtn.addEventListener('click', poll);
+            cancelBtn.addEventListener('click', () => { isEditing = false; poll(); });
             input.addEventListener('keydown', e => {
                 if (e.key === 'Enter')  doRename(filename, input.value);
-                if (e.key === 'Escape') poll();
+                if (e.key === 'Escape') { isEditing = false; poll(); }
             });
         }
 
         async function doRename(oldName, newName) {
             newName = newName.trim();
             if (!newName) return;
+            isEditing = false;
             const res = await fetch(`/clips/${encodeURIComponent(oldName)}/rename`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
