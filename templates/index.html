@@ -34,6 +34,19 @@
             animation: pulse 1s infinite;
         }
 
+        #rec-btn {
+            background: #e33;
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #rec-btn.stop { background: #555; }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50%       { opacity: 0.5; }
@@ -66,6 +79,9 @@
         #clip-list { list-style: none; }
 
         #clip-list li {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
             padding: 0.4rem 0;
             border-bottom: 1px solid #222;
             font-size: 0.9rem;
@@ -74,9 +90,35 @@
         #clip-list a {
             color: #6af;
             text-decoration: none;
+            flex: 1;
         }
 
         #clip-list a:hover { text-decoration: underline; }
+
+        .clip-rename-input {
+            flex: 1;
+            background: #222;
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 0.9rem;
+        }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            padding: 2px 4px;
+            opacity: 0.5;
+            line-height: 1;
+        }
+
+        .icon-btn:hover { opacity: 1; }
+        .icon-btn.confirm { color: #4c4; opacity: 0.8; }
+        .icon-btn.cancel  { color: #888; opacity: 0.8; }
+        .icon-btn.trash   { color: #e33; }
 
         .empty { color: #555; }
     </style>
@@ -85,6 +127,7 @@
     <header>
         <h1>ChipCam</h1>
         <span id="rec-badge">&#9679; REC</span>
+        <button id="rec-btn">Record</button>
     </header>
 
     <div class="stream-wrapper">
@@ -99,17 +142,32 @@
     <script>
         const badge    = document.getElementById('rec-badge');
         const clipList = document.getElementById('clip-list');
+        const recBtn   = document.getElementById('rec-btn');
+
+        let isRecording = false;
+
+        recBtn.addEventListener('click', async () => {
+            const endpoint = isRecording ? '/record/stop' : '/record/start';
+            await fetch(endpoint, { method: 'POST' });
+            poll();
+        });
 
         async function poll() {
             try {
                 const { recording, clips } = await fetch('/status').then(r => r.json());
 
+                isRecording = recording;
                 badge.style.display = recording ? 'inline-block' : 'none';
+                recBtn.textContent   = recording ? 'Stop' : 'Record';
+                recBtn.classList.toggle('stop', recording);
 
                 clipList.innerHTML = clips.length
-                    ? clips.map(c =>
-                        `<li><a href="/clips/${c}" download>${c}</a></li>`
-                      ).join('')
+                    ? clips.map(c => `
+                        <li id="clip-${CSS.escape(c)}">
+                            <a href="/clips/${c}" download>${c}</a>
+                            <button class="icon-btn" title="Rename" onclick="startRename('${c}')">&#9998;</button>
+                            <button class="icon-btn trash" title="Delete" onclick="deleteClip('${c}')">&#128465;</button>
+                        </li>`).join('')
                     : '<li class="empty">No clips yet</li>';
             } catch (e) {
                 console.error('Poll failed:', e);
@@ -118,6 +176,45 @@
 
         poll();
         setInterval(poll, 3000);
+
+        function startRename(filename) {
+            const li = document.getElementById(`clip-${CSS.escape(filename)}`);
+            const nameWithoutExt = filename.replace(/\.mp4$/, '');
+            li.innerHTML = `
+                <input class="clip-rename-input" value="${nameWithoutExt}" id="rename-input">
+                <button class="icon-btn confirm" title="Save" onclick="confirmRename('${filename}')">&#10003;</button>
+                <button class="icon-btn cancel"  title="Cancel" onclick="poll()">&#10005;</button>
+            `;
+            const input = document.getElementById('rename-input');
+            input.focus();
+            input.select();
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter')  confirmRename(filename);
+                if (e.key === 'Escape') poll();
+            });
+        }
+
+        async function confirmRename(oldName) {
+            const input = document.getElementById('rename-input');
+            const newName = input.value.trim();
+            if (!newName) return;
+            const res = await fetch(`/clips/${oldName}/rename`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newName }),
+            });
+            const data = await res.json();
+            if (!data.ok) alert(`Rename failed: ${data.reason}`);
+            poll();
+        }
+
+        async function deleteClip(filename) {
+            if (!confirm(`Delete ${filename}?`)) return;
+            const res = await fetch(`/clips/${filename}/delete`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!data.ok) alert(`Delete failed: ${data.reason}`);
+            poll();
+        }
     </script>
 </body>
 </html>

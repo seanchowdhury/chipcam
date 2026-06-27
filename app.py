@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime
 
 import numpy as np
-from flask import Flask, Response, render_template, jsonify, send_from_directory
+from flask import Flask, Response, render_template, jsonify, send_from_directory, request
 from picamera2 import Picamera2, MappedArray
 from picamera2.encoders import H264Encoder, MJPEGEncoder
 from picamera2.outputs import CircularOutput, FileOutput
@@ -135,9 +135,64 @@ def status():
     return jsonify(recording=_recording, clips=clips)
 
 
+@app.route("/record/start", methods=["POST"])
+def record_start():
+    global _recording, _active_clip
+    with _state_lock:
+        if _recording:
+            return jsonify(ok=False, reason="already recording")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        _active_clip = os.path.join(CLIPS_DIR, f"clip_{timestamp}.h264")
+        circular.fileoutput = _active_clip
+        circular.start()
+        _recording = True
+        print(f"[manual] Recording → {_active_clip}")
+    return jsonify(ok=True)
+
+
+@app.route("/record/stop", methods=["POST"])
+def record_stop():
+    global _recording, _active_clip
+    with _state_lock:
+        if not _recording:
+            return jsonify(ok=False, reason="not recording")
+        circular.stop()
+        _recording = False
+        clip = _active_clip
+        print(f"[manual] Clip complete — converting {clip}")
+        threading.Thread(target=_convert_clip, args=(clip,), daemon=True).start()
+    return jsonify(ok=True)
+
+
 @app.route("/clips/<path:filename>")
 def serve_clip(filename):
     return send_from_directory(CLIPS_DIR, filename)
+
+
+@app.route("/clips/<path:filename>/rename", methods=["POST"])
+def rename_clip(filename):
+    new_name = request.json.get("name", "").strip()
+    if not new_name or "/" in new_name or "\\" in new_name:
+        return jsonify(ok=False, reason="invalid name"), 400
+    if not new_name.endswith(".mp4"):
+        new_name += ".mp4"
+    src = os.path.join(CLIPS_DIR, filename)
+    dst = os.path.join(CLIPS_DIR, new_name)
+    if not os.path.isfile(src):
+        return jsonify(ok=False, reason="not found"), 404
+    if os.path.exists(dst):
+        return jsonify(ok=False, reason="name already taken"), 409
+    os.rename(src, dst)
+    return jsonify(ok=True, name=new_name)
+
+
+@app.route("/clips/<path:filename>/delete", methods=["DELETE"])
+def delete_clip(filename):
+    path = os.path.join(CLIPS_DIR, filename)
+    if not os.path.isfile(path):
+        return jsonify(ok=False, reason="not found"), 404
+    os.remove(path)
+    return jsonify(ok=True)
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
