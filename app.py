@@ -14,7 +14,7 @@ from picamera2.outputs import CircularOutput, FileOutput
 # ── Config ────────────────────────────────────────────────────────────────────
 MAIN_SIZE        = (1920, 1080)
 LORES_SIZE       = (640, 360)
-MOTION_THRESHOLD = 8          # mean luma diff (0–255) that triggers recording
+MOTION_THRESHOLD = 4          # mean luma diff (0–255) that triggers recording
 MOTION_COOLDOWN  = 5          # seconds of no motion before clip is finalized
 PRE_BUFFER_SECS  = 5          # seconds of footage buffered before motion
 H264_BITRATE     = 4_000_000
@@ -41,6 +41,7 @@ stream_output = StreamingOutput()
 circular: CircularOutput | None = None
 
 _recording      = False
+_manual_recording = False   # True when started via button, skips motion auto-stop
 _last_motion_ts = 0.0
 _prev_luma      = None
 _motion_event   = threading.Event()
@@ -84,7 +85,7 @@ def recording_manager():
 
         else:
             with _state_lock:
-                if _recording and (time.time() - _last_motion_ts > MOTION_COOLDOWN):
+                if _recording and not _manual_recording and (time.time() - _last_motion_ts > MOTION_COOLDOWN):
                     circular.stop()
                     _recording = False
                     clip = _active_clip
@@ -137,7 +138,7 @@ def status():
 
 @app.route("/record/start", methods=["POST"])
 def record_start():
-    global _recording, _active_clip
+    global _recording, _manual_recording, _active_clip
     with _state_lock:
         if _recording:
             return jsonify(ok=False, reason="already recording")
@@ -146,18 +147,20 @@ def record_start():
         circular.fileoutput = _active_clip
         circular.start()
         _recording = True
+        _manual_recording = True
         print(f"[manual] Recording → {_active_clip}")
     return jsonify(ok=True)
 
 
 @app.route("/record/stop", methods=["POST"])
 def record_stop():
-    global _recording, _active_clip
+    global _recording, _manual_recording, _active_clip
     with _state_lock:
         if not _recording:
             return jsonify(ok=False, reason="not recording")
         circular.stop()
         _recording = False
+        _manual_recording = False
         clip = _active_clip
         print(f"[manual] Clip complete — converting {clip}")
         threading.Thread(target=_convert_clip, args=(clip,), daemon=True).start()

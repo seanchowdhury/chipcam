@@ -161,14 +161,7 @@
                 recBtn.textContent   = recording ? 'Stop' : 'Record';
                 recBtn.classList.toggle('stop', recording);
 
-                clipList.innerHTML = clips.length
-                    ? clips.map(c => `
-                        <li id="clip-${CSS.escape(c)}">
-                            <a href="/clips/${c}" download>${c}</a>
-                            <button class="icon-btn" title="Rename" onclick="startRename('${c}')">&#9998;</button>
-                            <button class="icon-btn trash" title="Delete" onclick="deleteClip('${c}')">&#128465;</button>
-                        </li>`).join('')
-                    : '<li class="empty">No clips yet</li>';
+                renderClips(clips);
             } catch (e) {
                 console.error('Poll failed:', e);
             }
@@ -177,28 +170,66 @@
         poll();
         setInterval(poll, 3000);
 
-        function startRename(filename) {
-            const li = document.getElementById(`clip-${CSS.escape(filename)}`);
+        function renderClips(clips) {
+            if (!clips.length) {
+                clipList.innerHTML = '<li class="empty">No clips yet</li>';
+                return;
+            }
+            clipList.innerHTML = clips.map(c => {
+                const safe = c.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+                return `<li data-filename="${safe}">
+                    <a href="/clips/${encodeURIComponent(c)}" download>${safe}</a>
+                    <button class="icon-btn rename-btn" title="Rename">&#9998;</button>
+                    <button class="icon-btn trash trash-btn" title="Delete">&#128465;</button>
+                </li>`;
+            }).join('');
+
+            clipList.querySelectorAll('.rename-btn').forEach(btn => {
+                btn.addEventListener('click', () => startRename(btn.closest('li')));
+            });
+            clipList.querySelectorAll('.trash-btn').forEach(btn => {
+                btn.addEventListener('click', () => deleteClip(btn.closest('li').dataset.filename));
+            });
+        }
+
+        function startRename(li) {
+            const filename = li.dataset.filename;
             const nameWithoutExt = filename.replace(/\.mp4$/, '');
-            li.innerHTML = `
-                <input class="clip-rename-input" value="${nameWithoutExt}" id="rename-input">
-                <button class="icon-btn confirm" title="Save" onclick="confirmRename('${filename}')">&#10003;</button>
-                <button class="icon-btn cancel"  title="Cancel" onclick="poll()">&#10005;</button>
-            `;
-            const input = document.getElementById('rename-input');
+
+            const input = document.createElement('input');
+            input.className = 'clip-rename-input';
+            input.value = nameWithoutExt;
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'icon-btn confirm';
+            confirmBtn.title = 'Save';
+            confirmBtn.textContent = '✓';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'icon-btn cancel';
+            cancelBtn.title = 'Cancel';
+            cancelBtn.textContent = '✕';
+
+            li.innerHTML = '';
+            li.appendChild(input);
+            li.appendChild(confirmBtn);
+            li.appendChild(cancelBtn);
+
             input.focus();
             input.select();
+
+            confirmBtn.addEventListener('click', () => doRename(filename, input.value));
+            cancelBtn.addEventListener('click', poll);
             input.addEventListener('keydown', e => {
-                if (e.key === 'Enter')  confirmRename(filename);
+                if (e.key === 'Enter')  doRename(filename, input.value);
                 if (e.key === 'Escape') poll();
             });
         }
 
-        async function confirmRename(oldName) {
-            const input = document.getElementById('rename-input');
-            const newName = input.value.trim();
+        async function doRename(oldName, newName) {
+            newName = newName.trim();
             if (!newName) return;
-            const res = await fetch(`/clips/${oldName}/rename`, {
+            const res = await fetch(`/clips/${encodeURIComponent(oldName)}/rename`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: newName }),
@@ -210,7 +241,7 @@
 
         async function deleteClip(filename) {
             if (!confirm(`Delete ${filename}?`)) return;
-            const res = await fetch(`/clips/${filename}/delete`, { method: 'DELETE' });
+            const res = await fetch(`/clips/${encodeURIComponent(filename)}/delete`, { method: 'DELETE' });
             const data = await res.json();
             if (!data.ok) alert(`Delete failed: ${data.reason}`);
             poll();
